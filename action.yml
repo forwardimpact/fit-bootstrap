@@ -65,11 +65,15 @@ runs:
       id: deps-cache
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
+        # Cache the whole local install prefix instead of naming individual
+        # tools — the consumer's scripts/install-deps.sh is the source of
+        # truth for what goes here, and the cache key already invalidates
+        # whenever that script changes. Scoped to bin + lib so unrelated
+        # XDG state under ~/.local/share or ~/.local/state stays out of
+        # the deps cache.
         path: |
           ~/.local/bin
-          ~/.local/lib/apm
-          ~/.local/lib/just
-          ~/.local/lib/gh
+          ~/.local/lib
         key: deps-${{ runner.os }}-${{ hashFiles('scripts/install-deps.sh') }}
 
     - name: Install CLI dependencies

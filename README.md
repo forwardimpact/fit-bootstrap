@@ -47,9 +47,11 @@ The consumer repo must follow FIT conventions:
 
 Two cache layers:
 
-- **Deps** — `~/.local/bin`, `~/.local/lib/{apm,just,gh}`, keyed on
-  `hashFiles('scripts/install-deps.sh')`. Hits whenever the consumer
-  hasn't bumped a pinned version.
+- **Deps** — `~/.local/bin` + `~/.local/lib` (the whole local install
+  prefix; the consumer's `scripts/install-deps.sh` decides what goes
+  there), keyed on `hashFiles('scripts/install-deps.sh')`. Hits
+  whenever the consumer hasn't bumped a pinned version or added a new
+  tool.
 - **Workspace** — `node_modules`, `generated`, `libraries/*/src/generated`,
   keyed on `hashFiles('bun.lock', '**/*.proto', 'libraries/libcodegen/**')`.
   Hits whenever the lockfile and codegen inputs haven't changed.
