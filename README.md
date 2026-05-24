@@ -54,7 +54,14 @@ Two cache layers:
   tool.
 - **Workspace** — `node_modules`, `generated`, `libraries/*/src/generated`,
   keyed on `hashFiles('bun.lock', '**/*.proto', 'libraries/libcodegen/**')`.
-  Hits whenever the lockfile and codegen inputs haven't changed.
+  Hits whenever the lockfile and codegen inputs haven't changed. The
+  action rebases the workspace onto `origin/main` *before* hashing, so
+  the key reflects the tree `scripts/bootstrap.sh` will actually run
+  against — a feature branch caught behind a release commit lands on
+  the same key as a fresh build of main, not a stale snapshot.
+  A `restore-keys` fallback warms `node_modules` from the most recent
+  cache on a key miss; `cache-hit` stays `'false'` in that case so the
+  consumer's `bun install` runs to reconcile.
 
 Cache misses are transparent: `scripts/install-deps.sh` re-installs
 deps, `scripts/bootstrap.sh` runs `bun install` end-to-end. Generated
