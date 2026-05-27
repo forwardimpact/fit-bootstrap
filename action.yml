@@ -91,9 +91,6 @@ runs:
           fi
         fi
 
-    # persist-credentials: false — fit-wiki authenticates every wiki
-    # operation with its own credential helper (GH_TOKEN), so a stored
-    # checkout header is never used and only goes stale on long jobs.
     - name: Checkout wiki
       if: inputs.token != ''
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -101,7 +98,6 @@ runs:
         repository: ${{ github.repository }}.wiki
         path: wiki
         token: ${{ inputs.token }}
-        persist-credentials: false
 
     - name: Restore deps cache
       id: deps-cache
