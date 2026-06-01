@@ -1,10 +1,10 @@
 name: FIT Bootstrap
 description: >
-  Opinionated FIT environment bootstrap. Sets up Bun, installs cached CLI
-  dependencies (just / apm / gh) into ~/.local/bin, restores the
-  node_modules + generated workspace cache, optionally checks out the
-  GitHub wiki, and runs ./scripts/bootstrap.sh. To push the wiki back, run
-  forwardimpact/fit-wiki@v1 after the agent step.
+  Opinionated FIT environment bootstrap. Sets up Bun, restores a single
+  environment cache (CLI tools in ~/.local + node_modules + generated),
+  installs anything missing, optionally checks out the GitHub wiki, and runs
+  ./scripts/bootstrap.sh. To push the wiki back, run forwardimpact/fit-wiki@v1
+  after the agent step.
 
 inputs:
   token:
@@ -91,13 +91,16 @@ runs:
         path: wiki
         token: ${{ inputs.token }}
 
-    # Ask the consumer's install-deps.sh which paths it manages, rather than
-    # caching the whole install prefix. The script is the source of truth for
-    # what it installs, so it is also the source of truth for what to cache.
-    # Layout is static, so this prints the right paths even on a cold cache
-    # before anything is installed.
-    - name: Resolve deps cache paths
-      id: deps-paths
+    # One environment cache covers both the CLI tools and the workspace
+    # (node_modules + generated). This step emits every path as one
+    # newline-separated list: the paths install-deps.sh declares via --paths
+    # (each tool's lib dir + bin symlink — keeping unrelated ~/.local tooling
+    # like uv/Python out of the cache), plus the workspace dirs. Folding the
+    # two former caches into a single restore drops an actions/cache
+    # round-trip from the critical path. Layout is static, so the tool paths
+    # are correct even on a cold cache before anything is installed.
+    - name: Resolve cache paths
+      id: cache-paths
       shell: bash
       run: |
         {
@@ -110,25 +113,30 @@ runs:
             echo "$HOME/.local/bin"
             echo "$HOME/.local/lib"
           fi
+          printf '%s\n' node_modules generated 'libraries/*/src/generated'
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Restore deps cache
-      id: deps-cache
+    - name: Restore environment cache
+      id: env-cache
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        # Cache only the paths scripts/install-deps.sh declares via --paths
-        # (each tool's lib dir + bin symlink), not the whole install prefix.
-        # This keeps unrelated tooling that shares the prefix (uv, Python,
-        # other XDG state under ~/.local) out of the deps cache — that
-        # clutter already ships in the runner image, so caching it only
-        # wastes copy time. The cache key still invalidates whenever the
-        # script changes.
-        path: ${{ steps.deps-paths.outputs.paths }}
-        key: deps-${{ runner.os }}-${{ hashFiles('scripts/install-deps.sh') }}
+        path: ${{ steps.cache-paths.outputs.paths }}
+        # Key on every input that changes what we install or generate:
+        # install-deps.sh (tools), bun.lock (node_modules), and the proto +
+        # libcodegen sources (generated). The env-v2 prefix forces one cold
+        # rebuild so the cache is re-saved with the relative generated symlinks
+        # fit-codegen now writes — older caches held absolute, non-portable
+        # links that dangle once restored, defeating the codegen skip in
+        # scripts/bootstrap.sh. restore-keys warm-starts from the previous
+        # environment cache on a miss; cache-hit stays 'false' there, so
+        # bootstrap.sh still runs bun install + codegen to reconcile.
+        key: env-v2-${{ runner.os }}-${{ hashFiles('scripts/install-deps.sh', 'bun.lock', '**/*.proto', 'libraries/libcodegen/src/**', 'libraries/libcodegen/templates/**', 'libraries/libcodegen/bin/**') }}
+        restore-keys: |
+          env-v2-${{ runner.os }}-
 
     - name: Install CLI dependencies
-      if: steps.deps-cache.outputs.cache-hit != 'true'
+      if: steps.env-cache.outputs.cache-hit != 'true'
       shell: bash
       run: bash scripts/install-deps.sh
 
@@ -136,25 +144,12 @@ runs:
       shell: bash
       run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    - name: Restore workspace cache
-      id: workspace-cache
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      with:
-        path: |
-          node_modules
-          generated
-          libraries/*/src/generated
-        key: workspace-${{ runner.os }}-${{ hashFiles('bun.lock', '**/*.proto', 'libraries/libcodegen/src/**', 'libraries/libcodegen/templates/**', 'libraries/libcodegen/bin/**') }}
-        # On a key miss (lockfile or codegen inputs changed), warm-start
-        # from the most recent workspace cache. cache-hit stays 'false'
-        # on a restore-keys fallback, so scripts/bootstrap.sh still runs
-        # bun install to reconcile node_modules with the new lockfile.
-        restore-keys: |
-          workspace-${{ runner.os }}-
-
     - name: Bootstrap
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
-        BOOTSTRAP_WORKSPACE_CACHE_HIT: ${{ steps.workspace-cache.outputs.cache-hit }}
+        BOOTSTRAP_WORKSPACE_CACHE_HIT: ${{ steps.env-cache.outputs.cache-hit }}
+        # The Sync workspace step above already rebased onto origin/main; tell
+        # bootstrap.sh to skip its own redundant fetch+rebase round-trip.
+        BOOTSTRAP_SKIP_SYNC: "true"
       run: ./scripts/bootstrap.sh
