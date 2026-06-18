@@ -65,12 +65,19 @@ critical path makes a single `actions/cache` restore:
   changes in a way the hash can't see, e.g. the move to relative generated
   symlinks that v2 introduced.
 
-A `restore-keys` fallback warms the cache from the most recent build on a key
-miss; `cache-hit` stays `'false'` there, so `scripts/bootstrap.sh` runs
-`bun install` + `just codegen` to reconcile. On a full hit it skips both —
-`generated` and its **relative** `libraries/*/src/generated` symlinks restore
-intact. (Relative links survive `actions/cache` extraction; the old absolute
-ones did not, which is why codegen used to re-run on every warm cache.)
+The cache is **exact-key-restore-only**: there is no `restore-keys` prefix
+fallback. On an exact-key hit `cache-hit` is `'true'` and the action skips
+install and codegen — `generated` and its **relative**
+`libraries/*/src/generated` symlinks restore intact. (Relative links survive
+`actions/cache` extraction; the old absolute ones did not, which is why
+codegen used to re-run on every warm cache.) On any other key, no files are
+restored, `cache-hit` is `'false'`, and `scripts/bootstrap.sh` runs
+`bun install` + `just codegen` against an empty tree, resolving the lockfile
+from scratch. Dropping the prefix fallback closes a cross-cycle poisoning loop
+where a partial restore under a different lockfile's key survived the install
+and saved back under the new key; see
+[monorepo spec 1580](https://github.com/forwardimpact/monorepo/blob/main/specs/1580-fit-bootstrap-workspace-cache-integrity/spec.md)
+for the rationale.
 
 ## Wiki
 

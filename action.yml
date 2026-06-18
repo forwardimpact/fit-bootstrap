@@ -127,8 +127,6 @@ runs:
         # absolute→relative generated-symlink switch v2 shipped. hashFiles
         # already invalidates on tool / lockfile / proto / codegen-source edits.
         key: env-v2-${{ runner.os }}-${{ hashFiles('scripts/install-deps.sh', 'bun.lock', '**/*.proto', 'libraries/libcodegen/src/**', 'libraries/libcodegen/templates/**', 'libraries/libcodegen/bin/**') }}
-        restore-keys: |
-          env-v2-${{ runner.os }}-
 
     - name: Install CLI dependencies
       if: steps.env-cache.outputs.cache-hit != 'true'
