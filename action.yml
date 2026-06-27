@@ -124,6 +124,11 @@ runs:
         # Different clis sets cache distinctly: a job's cache must never restore
         # another job's tool set. Sanitize the clis string into the key below.
         echo "clis_key=$(printf '%s' "$CLIS" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')" >> "$GITHUB_OUTPUT"
+        # Hash the bundled installer into the key. It carries every tool version
+        # AND the pinned gear release, so a new gear release (new gear binaries)
+        # invalidates the cache automatically — without this a stale cache hit
+        # serves the previous release's binaries and skips the reinstall.
+        echo "installer_hash=$(sha256sum "$GITHUB_ACTION_PATH/fit-install.sh" | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
     - name: Restore environment cache
       id: env-cache
@@ -132,12 +137,13 @@ runs:
         path: ${{ steps.cache-paths.outputs.paths }}
         # The vN prefix is a manual cache-buster: bump it (v2 → v3 → …) when the
         # cached layout changes in a way hashFiles can't see — e.g. the v3 move
-        # to the action-bundled fit-install.sh (its tool versions are not on a
-        # hashFiles-visible path; bump again when they change). v4 adds the
-        # clis_key segment: the installer now always installs the default tools
-        # and adds the named CLIs on top, so each tool set caches separately.
-        # hashFiles still invalidates on lockfile / proto / codegen-source edits.
-        key: env-v4-${{ runner.os }}-${{ steps.cache-paths.outputs.clis_key }}-${{ hashFiles('bun.lock', '**/*.proto', 'libraries/libcodegen/src/**', 'libraries/libcodegen/templates/**', 'libraries/libcodegen/bin/**') }}
+        # to the action-bundled fit-install.sh. v4 adds the clis_key segment so
+        # each tool set caches separately. The installer_hash segment now folds
+        # in the bundled installer's own contents (tool versions + gear release),
+        # so tool/binary version changes invalidate the cache automatically and
+        # the vN prefix no longer needs a manual bump for them. hashFiles still
+        # invalidates on lockfile / proto / codegen-source edits.
+        key: env-v4-${{ runner.os }}-${{ steps.cache-paths.outputs.clis_key }}-${{ steps.cache-paths.outputs.installer_hash }}-${{ hashFiles('bun.lock', '**/*.proto', 'libraries/libcodegen/src/**', 'libraries/libcodegen/templates/**', 'libraries/libcodegen/bin/**') }}
 
     - name: Install CLI dependencies
       if: steps.env-cache.outputs.cache-hit != 'true'
